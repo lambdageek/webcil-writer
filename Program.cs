@@ -3,6 +3,31 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+namespace WebCil.Writer;
+
+record struct FilePosition(int Position)
+{
+    public static implicit operator FilePosition(int position) => new(position);
+
+    public static FilePosition operator +(FilePosition left, int right) => new(left.Position + right);
+}
+
+sealed class SaveStreamPosition : IDisposable
+{
+    private readonly Stream _stream;
+    private readonly long _position;
+
+    public SaveStreamPosition(Stream stream)
+    {
+        _stream = stream;
+        _position = stream.Position;
+    }
+
+    public void Dispose()
+    {
+        _stream.Position = _position;
+    }
+}
 
 public class Program
 {
@@ -10,27 +35,36 @@ public class Program
     {
         if (args.Length < 2)
         {
-            System.Console.WriteLine("Usage: webcil-writer <input> <output>");
+            System.Console.WriteLine("Usage: writer <input> <output>");
             return;
         }
         Console.WriteLine("size of WCHeader = {0}", SizeOfHeader());
         string inputPath = args[0];
         string outputPath = args[1];
 
-        using (var peReader = new PEReader(System.IO.File.Open(inputPath, FileMode.Open)))
+        using var inputStream = System.IO.File.Open(inputPath, FileMode.Open);
+        ImmutableArray<CoffSectionHeaderBuilder> sectionsHeaders;
+        ImmutableArray<SectionHeader> peSections;
+        WCHeader header = new();
+        using (var peReader = new PEReader(inputStream, PEStreamOptions.LeaveOpen))
         {
             DumpPE(peReader);
-            WebCil.WCHeader header = new WebCil.WCHeader();
-            FillHeader(peReader, ref header);
+            FillHeader(peReader, ref header, out peSections, out sectionsHeaders);
         }
+
+        using var outputStream = System.IO.File.Open(outputPath, FileMode.Create);
+        WriteHeader(outputStream, header);
+        WriteSectionHeaders(outputStream, sectionsHeaders);
+        CopySections(outputStream, inputStream, peSections);
+
     }
 
     public unsafe static int SizeOfHeader()
     {
-        return sizeof(WebCil.WCHeader);
+        return sizeof(WCHeader);
     }
 
-    public unsafe static void FillHeader(PEReader peReader, ref WebCil.WCHeader header, out ImmutableArray<WebCil.SectionHeaderBuilder> sectionsHeaders)
+    public unsafe static void FillHeader(PEReader peReader, ref WCHeader header, out ImmutableArray<SectionHeader> peSections, out ImmutableArray<CoffSectionHeaderBuilder> sectionsHeaders)
     {
         var headers = peReader.PEHeaders;
         var peHeader = headers.PEHeader!;
@@ -39,8 +73,9 @@ public class Program
         var sections = headers.SectionHeaders;
         header.id[0] = (byte)'W';
         header.id[1] = (byte)'C';
-        header.version = WebCil.Constants.WC_VERSION;
+        header.version = Constants.WC_VERSION;
         header.reserved0 = 0;
+        header.reserved1 = 0;
         header.metadata_rva = (uint)corHeader.MetadataDirectory.RelativeVirtualAddress;
         header.metadata_size = (uint)corHeader.MetadataDirectory.Size;
         header.cli_flags = (uint)corHeader.Flags;
@@ -48,28 +83,31 @@ public class Program
         header.pe_cli_header_rva = (uint)peHeader.CorHeaderTableDirectory.RelativeVirtualAddress;
         header.pe_cli_header_size = (uint)peHeader.CorHeaderTableDirectory.Size;
 
-        int offset = SizeOfHeader();
-        int startOfSection = offset;
+        // current logical position in the output file
+        FilePosition pos = SizeOfHeader();
+        // position of the current section in the output file
+        // initially it's after all the section headers
+        FilePosition curSectionPos = pos + sizeof(CoffSectionHeaderBuilder) * coffHeader.NumberOfSections;
 
         // TODO: write the sections, but adjust the raw data ptr to the offset after the WCHeader.
-        ImmutableArray<WebCil.SectionHeaderBuilder>.Builder headerBuilder = ImmutableArray.CreateBuilder<WebCil.SectionHeaderBuilder>(coffHeader.NumberOfSections);
+        ImmutableArray<CoffSectionHeaderBuilder>.Builder headerBuilder = ImmutableArray.CreateBuilder<CoffSectionHeaderBuilder>(coffHeader.NumberOfSections);
         foreach (var sectionHeader in sections)
         {
-            var newHeader = new WebCil.SectionHeaderBuilder
-            {
-                VirtualSize = sectionHeader.VirtualSize,
-                VirtualAddress = sectionHeader.VirtualAddress,
-                SizeOfRawData = sectionHeader.SizeOfRawData,
-                PointerToRawData = sectionHeader.PointerToRawData,
-            };
+            var newHeader = new CoffSectionHeaderBuilder
+            (
+                virtualSize: sectionHeader.VirtualSize,
+                virtualAddress: sectionHeader.VirtualAddress,
+                sizeOfRawData: sectionHeader.SizeOfRawData,
+                pointerToRawData: curSectionPos.Position
+            );
 
-            offset += 16; // sizeof(SectionHeader)
+            pos += sizeof(CoffSectionHeaderBuilder);
+            curSectionPos += sectionHeader.SizeOfRawData;
             headerBuilder.Add(newHeader);
         }
-        // now adjust the raw data ptrs for the sections and also copy the section data
-        // TODO
 
-
+        peSections = sections;
+        sectionsHeaders = headerBuilder.ToImmutable();
     }
 
     public static void DumpPE(PEReader peReader)
@@ -133,6 +171,37 @@ public class Program
             Console.WriteLine("\t{0}", new string(visible, 0, bytes.Length % width));
         }
     }
+
+    static void WriteHeader(Stream s, WCHeader header)
+    {
+        unsafe
+        {
+            byte* p = &header.id[0]; ;
+            s.Write(new ReadOnlySpan<byte>(p, sizeof(WCHeader)));
+        }
+    }
+
+    static void WriteSectionHeaders(Stream s, ImmutableArray<CoffSectionHeaderBuilder> sectionsHeaders)
+    {
+        foreach (var sectionHeader in sectionsHeaders)
+        {
+            unsafe
+            {
+                byte* p = (byte*)&sectionHeader;
+                s.Write(new ReadOnlySpan<byte>(p, sizeof(CoffSectionHeaderBuilder)));
+            }
+        }
+    }
+
+    static void CopySections(Stream outStream, Stream inputStream, ImmutableArray<SectionHeader> peSections)
+    {
+        foreach (var peHeader in peSections)
+        {
+            inputStream.Seek(peHeader.PointerToRawData, SeekOrigin.Begin);
+            inputStream.CopyTo(outStream, peHeader.SizeOfRawData);
+        }
+    }
+
 }
 
 
