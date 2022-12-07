@@ -75,6 +75,7 @@ public class Program
         header.id[1] = (byte)'C';
         header.version = Constants.WC_VERSION;
         header.reserved0 = 0;
+        header.coff_sections = (ushort)coffHeader.NumberOfSections;
         header.reserved1 = 0;
         header.metadata_rva = (uint)corHeader.MetadataDirectory.RelativeVirtualAddress;
         header.metadata_size = (uint)corHeader.MetadataDirectory.Size;
@@ -174,6 +175,9 @@ public class Program
 
     static void WriteHeader(Stream s, WCHeader header)
     {
+        // FIXME: fixup endianness
+        if (!BitConverter.IsLittleEndian)
+            throw new NotImplementedException();
         unsafe
         {
             byte* p = &header.id[0]; ;
@@ -183,6 +187,9 @@ public class Program
 
     static void WriteSectionHeaders(Stream s, ImmutableArray<CoffSectionHeaderBuilder> sectionsHeaders)
     {
+        // FIXME: fixup endianness
+        if (!BitConverter.IsLittleEndian)
+            throw new NotImplementedException();
         foreach (var sectionHeader in sectionsHeaders)
         {
             unsafe
@@ -195,6 +202,7 @@ public class Program
 
     static void CopySections(Stream outStream, Stream inputStream, ImmutableArray<SectionHeader> peSections)
     {
+        // endianness: ok, we're just copying from one stream to another
         foreach (var peHeader in peSections)
         {
             inputStream.Seek(peHeader.PointerToRawData, SeekOrigin.Begin);

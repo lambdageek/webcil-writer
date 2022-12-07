@@ -16,7 +16,9 @@ public unsafe struct WCHeader
     public byte version;
     public byte reserved0; // 0
     // 4 bytes
-    public int reserved1; // 0
+
+    public ushort coff_sections;
+    public ushort reserved1; // 0
     // 8 bytes
 
     public uint metadata_rva;
