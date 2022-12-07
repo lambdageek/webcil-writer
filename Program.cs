@@ -38,7 +38,6 @@ public class Program
             System.Console.WriteLine("Usage: writer <input> <output>");
             return;
         }
-        Console.WriteLine("size of WCHeader = {0}", SizeOfHeader());
         string inputPath = args[0];
         string outputPath = args[1];
 
