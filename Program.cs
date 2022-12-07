@@ -48,7 +48,7 @@ public class Program
         WCHeader header = new();
         using (var peReader = new PEReader(inputStream, PEStreamOptions.LeaveOpen))
         {
-            DumpPE(peReader);
+            // DumpPE(peReader);
             FillHeader(peReader, ref header, out peSections, out sectionsHeaders);
         }
 
