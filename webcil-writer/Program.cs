@@ -14,7 +14,16 @@ public class WebcilWriter
         }
         var inputPath = args[0];
         var outputPath = args.Length > 1 ? args[1] : Path.ChangeExtension(inputPath, ".webcil");
-        var loggerFactory = LoggerFactory.Create(builder => builder.AddSimpleConsole());
+        var loggerFactory = LoggerFactory.Create(builder =>
+        {
+            builder.AddSimpleConsole(options =>
+            {
+                options.SingleLine = true;
+
+            });
+            builder.SetMinimumLevel(LogLevel.Debug);
+        });
+
         var logger = loggerFactory.CreateLogger<WebcilWriter>();
         var w = new Microsoft.WebAssembly.Metadata.WebcilWriter(inputPath, outputPath, logger);
         w.Write();
