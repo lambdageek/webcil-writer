@@ -313,7 +313,7 @@ public class WebcilWriter
 
     private static void OverwriteDebugDirectoryEntries(Stream s, WCFileInfo wcInfo, ImmutableArray<DebugDirectoryEntry> entries)
     {
-        s.Seek(GetPositionOfRelativeVirtualAddress(wcInfo.SectionHeaders, wcInfo.Header.pe_cli_header_rva).Position, SeekOrigin.Begin);
+        s.Seek(GetPositionOfRelativeVirtualAddress(wcInfo.SectionHeaders, wcInfo.Header.pe_debug_rva).Position, SeekOrigin.Begin);
         using var writer = new BinaryWriter(s, System.Text.Encoding.UTF8, leaveOpen: true);
         // endianness: ok, we're just copying from one stream to another
         foreach (var entry in entries)
